@@ -1,4 +1,4 @@
-# BGG Game Collection Viewer
+# BGG Good Game. Board Game Collection Viewer
 
 A modern web application for viewing and filtering your BoardGameGeek collection with a beautiful dark theme.
 
