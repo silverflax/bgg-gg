@@ -55,10 +55,11 @@ Add the following repository secrets:
 | `AZURE_CREDENTIALS` | The entire JSON output from step 1 |
 | `AZURE_SUBSCRIPTION_ID` | Your Azure subscription ID (from the JSON above) |
 
-### 3. First Deployment (Infrastructure)
+### 3. First Deployment (Two-Phase Process)
 
-For the first deployment, you need to deploy the infrastructure:
+For the **first deployment**, you need to deploy infrastructure before container apps can be created:
 
+**Phase 1 - Deploy Infrastructure:**
 1. Go to your GitHub repository → Actions
 2. Select "Build and Deploy to Azure Container Apps"
 3. Click "Run workflow"
@@ -66,11 +67,18 @@ For the first deployment, you need to deploy the infrastructure:
 5. Select environment (usually `prod`)
 6. Click "Run workflow"
 
-This will:
-- Create a new resource group: `rg-bgg-gg-prod`
-- Create Azure Container Registry
-- Create Container Apps Environment
-- Build and deploy both containers
+This creates:
+- Resource group: `rg-bgg-gg-prod`
+- Azure Container Registry
+- Container Apps Environment
+- Log Analytics Workspace
+
+**Phase 2 - Build Images & Deploy Apps:**
+The workflow automatically continues to:
+- Build and push Docker images to ACR
+- Deploy the Container Apps with those images
+
+**Note:** On first deployment, both phases run automatically when `deploy_infrastructure=true`.
 
 ### 4. Subsequent Deployments
 
@@ -109,12 +117,12 @@ docker push $ACR_LOGIN_SERVER/bgg-gg-frontend:latest
 
 # Update container apps
 az containerapp update \
-  --name ca-bgg-gg-backend-prod \
+  --name bgg-gg-backend \
   --resource-group $RESOURCE_GROUP \
   --image $ACR_LOGIN_SERVER/bgg-gg-backend:latest
 
 az containerapp update \
-  --name ca-bgg-gg-frontend-prod \
+  --name bgg-gg-frontend \
   --resource-group $RESOURCE_GROUP \
   --image $ACR_LOGIN_SERVER/bgg-gg-frontend:latest
 ```
@@ -161,7 +169,7 @@ The local setup uses file-based caching in the `./cache` directory.
 1. Check container logs:
    ```bash
    az containerapp logs show \
-     --name ca-bgg-gg-backend-prod \
+     --name bgg-gg-backend \
      --resource-group rg-bgg-gg-prod \
      --follow
    ```
@@ -173,12 +181,12 @@ The local setup uses file-based caching in the `./cache` directory.
 1. Check the BACKEND_URL environment variable in the frontend container:
    ```bash
    az containerapp show \
-     --name ca-bgg-gg-frontend-prod \
+     --name bgg-gg-frontend \
      --resource-group rg-bgg-gg-prod \
      --query "properties.template.containers[0].env"
    ```
 
-2. The backend URL should be: `http://ca-bgg-gg-backend-prod.internal.<environment-domain>`
+2. The backend URL should be: `http://bgg-gg-backend.internal.<environment-domain>`
 
 ### Images not updating
 
@@ -191,7 +199,7 @@ The local setup uses file-based caching in the `./cache` directory.
 2. Force a new revision:
    ```bash
    az containerapp revision restart \
-     --name ca-bgg-gg-backend-prod \
+     --name bgg-gg-backend \
      --resource-group rg-bgg-gg-prod \
      --revision <revision-name>
    ```

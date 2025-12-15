@@ -16,6 +16,9 @@ param environment string = 'prod'
 @description('Container image tag')
 param imageTag string = 'latest'
 
+@description('Deploy container apps (set to false for initial infrastructure-only deployment)')
+param deployContainerApps bool = true
+
 // Generate unique suffix for globally unique names
 var resourceSuffix = uniqueString(subscription().subscriptionId, appName, environment)
 var resourceGroupName = 'rg-${appName}-${environment}'
@@ -40,6 +43,7 @@ module resources 'resources.bicep' = {
     environment: environment
     resourceSuffix: resourceSuffix
     imageTag: imageTag
+    deployContainerApps: deployContainerApps
   }
 }
 
@@ -47,6 +51,5 @@ module resources 'resources.bicep' = {
 output resourceGroupName string = rg.name
 output containerRegistryName string = resources.outputs.containerRegistryName
 output containerRegistryLoginServer string = resources.outputs.containerRegistryLoginServer
-output frontendUrl string = resources.outputs.frontendUrl
-output backendUrl string = resources.outputs.backendUrl
-
+output frontendUrl string = deployContainerApps ? resources.outputs.frontendUrl : 'Not deployed yet'
+output backendUrl string = deployContainerApps ? resources.outputs.backendUrl : 'Not deployed yet'

@@ -16,12 +16,16 @@ param resourceSuffix string
 @description('Container image tag')
 param imageTag string
 
+@description('Deploy container apps (set to false for initial infrastructure-only deployment)')
+param deployContainerApps bool = true
+
 // Naming conventions
 var acrName = replace('acr${appName}${resourceSuffix}', '-', '')
 var logAnalyticsName = 'log-${appName}-${environment}'
 var containerEnvName = 'cae-${appName}-${environment}'
-var backendAppName = 'ca-${appName}-backend-${environment}'
-var frontendAppName = 'ca-${appName}-frontend-${environment}'
+// Simple app names for cleaner URLs (e.g., bgg-gg-backend.<id>.australiaeast.azurecontainerapps.io)
+var backendAppName = '${appName}-backend'
+var frontendAppName = '${appName}-frontend'
 
 // Container Registry
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -75,8 +79,8 @@ resource containerEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
   }
 }
 
-// Backend Container App
-resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
+// Backend Container App (only deploy if deployContainerApps is true)
+resource backendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContainerApps) {
   name: backendAppName
   location: location
   properties: {
@@ -165,8 +169,8 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
-// Frontend Container App
-resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = {
+// Frontend Container App (only deploy if deployContainerApps is true)
+resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContainerApps) {
   name: frontendAppName
   location: location
   properties: {
@@ -257,7 +261,6 @@ resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = {
 // Outputs
 output containerRegistryName string = acr.name
 output containerRegistryLoginServer string = acr.properties.loginServer
-output frontendUrl string = 'https://${frontendApp.properties.configuration.ingress.fqdn}'
-output backendUrl string = 'http://${backendApp.properties.configuration.ingress.fqdn}'
-output backendInternalUrl string = 'http://${backendAppName}.internal.${containerEnv.properties.defaultDomain}'
-
+output frontendUrl string = deployContainerApps ? 'https://${frontendApp.properties.configuration.ingress.fqdn}' : 'Not deployed'
+output backendUrl string = deployContainerApps ? 'http://${backendApp.properties.configuration.ingress.fqdn}' : 'Not deployed'
+output backendInternalUrl string = deployContainerApps ? 'http://${backendAppName}.internal.${containerEnv.properties.defaultDomain}' : 'Not deployed'
