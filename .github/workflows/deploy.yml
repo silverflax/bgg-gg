@@ -1,0 +1,207 @@
+name: Build and Deploy to Azure Container Apps
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      deploy_infrastructure:
+        description: 'Deploy/update infrastructure'
+        required: true
+        default: false
+        type: boolean
+
+env:
+  APP_NAME: bgg-gg
+  AZURE_LOCATION: australiaeast
+
+jobs:
+  build:
+    name: Build Container Images
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          # Use git SHA for unique tagging
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "version=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Image tag: ${SHORT_SHA}"
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get ACR credentials
+        id: acr
+        run: |
+          # Get ACR name from resource group (assumes infrastructure is deployed)
+          RESOURCE_GROUP="rg-${{ env.APP_NAME }}-${{ github.event.inputs.environment || 'prod' }}"
+          ACR_NAME=$(az acr list -g $RESOURCE_GROUP --query "[0].name" -o tsv 2>/dev/null || echo "")
+          
+          if [ -z "$ACR_NAME" ]; then
+            echo "ACR not found. Infrastructure may need to be deployed first."
+            echo "acr_exists=false" >> $GITHUB_OUTPUT
+          else
+            ACR_LOGIN_SERVER=$(az acr show -n $ACR_NAME --query "loginServer" -o tsv)
+            echo "acr_exists=true" >> $GITHUB_OUTPUT
+            echo "acr_name=$ACR_NAME" >> $GITHUB_OUTPUT
+            echo "acr_login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Login to ACR
+        if: steps.acr.outputs.acr_exists == 'true'
+        run: |
+          az acr login --name ${{ steps.acr.outputs.acr_name }}
+
+      - name: Build and push backend image
+        if: steps.acr.outputs.acr_exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ steps.acr.outputs.acr_login_server }}/${{ env.APP_NAME }}-backend:${{ steps.meta.outputs.version }}
+            ${{ steps.acr.outputs.acr_login_server }}/${{ env.APP_NAME }}-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend image
+        if: steps.acr.outputs.acr_exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ steps.acr.outputs.acr_login_server }}/${{ env.APP_NAME }}-frontend:${{ steps.meta.outputs.version }}
+            ${{ steps.acr.outputs.acr_login_server }}/${{ env.APP_NAME }}-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: build
+    # Only run on manual trigger with deploy_infrastructure=true, or on first deployment
+    if: github.event.inputs.deploy_infrastructure == 'true' || github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.environment || 'prod' }}
+    
+    outputs:
+      acr_login_server: ${{ steps.deploy.outputs.containerRegistryLoginServer }}
+      frontend_url: ${{ steps.deploy.outputs.frontendUrl }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy Bicep template
+        id: deploy
+        uses: azure/arm-deploy@v2
+        with:
+          scope: subscription
+          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          region: ${{ env.AZURE_LOCATION }}
+          template: ./infra/main.bicep
+          parameters: >
+            appName=${{ env.APP_NAME }}
+            location=${{ env.AZURE_LOCATION }}
+            environment=${{ github.event.inputs.environment || 'prod' }}
+            imageTag=${{ needs.build.outputs.image_tag || 'latest' }}
+          failOnStdErr: false
+
+      - name: Output deployment info
+        run: |
+          echo "### Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend URL | ${{ steps.deploy.outputs.frontendUrl }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container Registry | ${{ steps.deploy.outputs.containerRegistryLoginServer }} |" >> $GITHUB_STEP_SUMMARY
+
+  deploy-apps:
+    name: Deploy Container Apps
+    runs-on: ubuntu-latest
+    needs: build
+    # Skip if infrastructure deployment is running (it will deploy the apps)
+    if: github.event.inputs.deploy_infrastructure != 'true'
+    environment: ${{ github.event.inputs.environment || 'prod' }}
+    
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Update backend container app
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'prod' }}"
+          RESOURCE_GROUP="rg-${{ env.APP_NAME }}-${ENVIRONMENT}"
+          BACKEND_APP="ca-${{ env.APP_NAME }}-backend-${ENVIRONMENT}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          
+          ACR_LOGIN_SERVER=$(az acr list -g $RESOURCE_GROUP --query "[0].loginServer" -o tsv)
+          
+          echo "Updating backend to image tag: ${IMAGE_TAG}"
+          az containerapp update \
+            --name $BACKEND_APP \
+            --resource-group $RESOURCE_GROUP \
+            --image "${ACR_LOGIN_SERVER}/${{ env.APP_NAME }}-backend:${IMAGE_TAG}"
+
+      - name: Update frontend container app
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'prod' }}"
+          RESOURCE_GROUP="rg-${{ env.APP_NAME }}-${ENVIRONMENT}"
+          FRONTEND_APP="ca-${{ env.APP_NAME }}-frontend-${ENVIRONMENT}"
+          IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+          
+          ACR_LOGIN_SERVER=$(az acr list -g $RESOURCE_GROUP --query "[0].loginServer" -o tsv)
+          
+          echo "Updating frontend to image tag: ${IMAGE_TAG}"
+          az containerapp update \
+            --name $FRONTEND_APP \
+            --resource-group $RESOURCE_GROUP \
+            --image "${ACR_LOGIN_SERVER}/${{ env.APP_NAME }}-frontend:${IMAGE_TAG}"
+
+      - name: Get deployment URLs
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'prod' }}"
+          RESOURCE_GROUP="rg-${{ env.APP_NAME }}-${ENVIRONMENT}"
+          FRONTEND_APP="ca-${{ env.APP_NAME }}-frontend-${ENVIRONMENT}"
+          
+          FRONTEND_URL=$(az containerapp show \
+            --name $FRONTEND_APP \
+            --resource-group $RESOURCE_GROUP \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          
+          echo "### Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Frontend URL: https://${FRONTEND_URL}" >> $GITHUB_STEP_SUMMARY
+
