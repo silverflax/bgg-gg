@@ -1,61 +1,42 @@
-# Multi-stage build for React frontend
-# Build stage - compile React app
-FROM node:18.19.1-alpine3.20 AS builder
+# Multi-stage build for minimal final image
+# Build stage - install dependencies
+FROM node:18-alpine AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production && \
+    npm cache clean --force
+
+# Runtime stage - minimal final image
+FROM node:18-alpine AS runtime
 
 # Install security updates
-RUN apk update && apk upgrade && rm -rf /var/cache/apk/*
+RUN apk update && apk upgrade && \
+    apk add --no-cache dumb-init && \
+    rm -rf /var/cache/apk/*
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodeuser -u 1001 -G nodejs
 
 WORKDIR /app
 
-# Copy package files for dependency installation
-COPY package*.json ./
+# Create cache directory with proper permissions for nodeuser
+RUN mkdir -p /cache && chown nodeuser:nodejs /cache
 
-# Install all dependencies (including dev dependencies for build)
-RUN npm ci && npm cache clean --force
+# Copy dependencies from build stage
+COPY --from=deps --chown=nodeuser:nodejs /app/node_modules ./node_modules
 
-# Copy source code
-COPY . .
-
-# Build the React app for production
-RUN npm run build
-
-# Production stage - serve with nginx (stable = most secure)
-FROM nginx:stable-alpine AS production
-
-# Install security updates and gettext for envsubst
-RUN apk update && apk upgrade && \
-    apk add --no-cache gettext && \
-    rm -rf /var/cache/apk/*
-
-# Create non-root user for nginx
-RUN addgroup -g 1001 -S nginx-user && \
-    adduser -S nginx-user -u 1001 -G nginx-user
-
-# Copy nginx configuration template (will be processed at runtime)
-COPY nginx.conf.template /etc/nginx/nginx.conf.template
-
-# Copy the static nginx.conf for backwards compatibility (local dev)
-COPY nginx.conf /etc/nginx/nginx.conf
-
-# Copy entrypoint script
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
-
-# Copy built React app from builder stage
-COPY --from=builder /app/build /usr/share/nginx/html
-
-# Create nginx cache and log directories with proper permissions
-RUN mkdir -p /var/cache/nginx /var/log/nginx /var/run && \
-    chown -R nginx-user:nginx-user /var/cache/nginx /var/log/nginx /var/run /usr/share/nginx/html /etc/nginx && \
-    chmod -R 755 /var/cache/nginx /var/log/nginx /var/run
-
-# Default backend URL for local development
-ENV BACKEND_URL=http://backend:4000
+# Copy application code
+COPY --chown=nodeuser:nodejs . .
 
 # Switch to non-root user
-USER nginx-user
+USER nodeuser
 
-EXPOSE 3000
+# Set default cache path environment variable
+ENV CACHE_PATH=/cache
 
-# Use entrypoint to process environment variables
-ENTRYPOINT ["/docker-entrypoint.sh"]
+EXPOSE 4000
+
+# Use dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "server.js"]
