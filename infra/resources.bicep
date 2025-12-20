@@ -277,6 +277,7 @@ resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
 // Outputs
 output containerRegistryName string = acr.name
 output containerRegistryLoginServer string = acr.properties.loginServer
-output frontendUrl string = deployContainerApps ? 'https://${frontendApp.properties.configuration.ingress.fqdn}' : 'Not deployed'
-output backendUrl string = deployContainerApps ? 'http://${backendApp.properties.configuration.ingress.fqdn}' : 'Not deployed'
+// Use null-forgiving operator (!) to suppress BCP318 warnings - the ternary ensures we only access when not null
+output frontendUrl string = deployContainerApps ? 'https://${frontendApp!.properties.configuration.ingress.fqdn}' : 'Not deployed'
+output backendUrl string = deployContainerApps ? 'http://${backendApp!.properties.configuration.ingress.fqdn}' : 'Not deployed'
 output backendInternalUrl string = deployContainerApps ? 'http://${backendAppName}.internal.${containerEnv.properties.defaultDomain}' : 'Not deployed'
