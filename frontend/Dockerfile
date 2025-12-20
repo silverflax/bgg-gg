@@ -50,4 +50,4 @@ EXPOSE 3000
 
 # At startup: substitute BACKEND_URL in nginx config template, then start nginx
 # Only substitute BACKEND_URL to avoid replacing nginx's own $ variables
-CMD ["/bin/sh", "-c", "envsubst '${BACKEND_URL}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", "echo '=== Frontend Starting ===' && echo \"BACKEND_URL=${BACKEND_URL}\" && envsubst '${BACKEND_URL}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && echo '=== Generated nginx proxy_pass config ===' && grep -A5 'location /api/' /etc/nginx/nginx.conf && echo '=== Starting nginx ===' && nginx -g 'daemon off;'"]
