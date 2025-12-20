@@ -222,9 +222,9 @@ resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
           }
           env: [
             {
-              // Use internal FQDN for backend service (HTTPS required for internal Container Apps)
+              // Use internal FQDN for backend service (HTTP allowed via allowInsecure: true)
               name: 'BACKEND_URL'
-              value: 'https://${backendAppName}.internal.${containerEnv.properties.defaultDomain}'
+              value: 'http://${backendAppName}.internal.${containerEnv.properties.defaultDomain}'
             }
           ]
           probes: [
