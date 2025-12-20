@@ -802,6 +802,21 @@ function App() {
           </div>
         </div>
       )}
+
+      <footer className="app-footer">
+        <a 
+          href="https://boardgamegeek.com/" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="powered-by-link"
+        >
+          <img 
+            src="https://cf.geekdo-images.com/HZy35cmzmmyV9BarSuk6ug__small/img/gbE7sulIurZE_Tx8EQJXnZSKI6w=/fit-in/200x150/filters:strip_icc()/pic7779581.png" 
+            alt="Powered by BoardGameGeek"
+            className="powered-by-logo"
+          />
+        </a>
+      </footer>
     </div>
   );
 }

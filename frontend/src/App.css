@@ -1176,3 +1176,40 @@ body.dark-theme .base-game-link {
 body.dark-theme .base-game-link:hover {
   background: rgba(184, 117, 107, 0.8);
 }
+
+/* Footer Styles */
+.app-footer {
+  margin-top: 40px;
+  padding: 20px;
+  text-align: center;
+  border-top: 1px solid #e0e0e0;
+}
+
+.powered-by-link {
+  display: inline-block;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 0.85;
+}
+
+.powered-by-link:hover {
+  transform: scale(1.05);
+  opacity: 1;
+}
+
+.powered-by-logo {
+  max-width: 150px;
+  height: auto;
+}
+
+/* Dark theme footer */
+body.dark-theme .app-footer {
+  border-top-color: rgba(184, 117, 107, 0.3);
+}
+
+body.dark-theme .powered-by-link {
+  opacity: 0.9;
+}
+
+body.dark-theme .powered-by-link:hover {
+  opacity: 1;
+}
