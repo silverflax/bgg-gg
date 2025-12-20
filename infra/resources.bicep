@@ -222,9 +222,9 @@ resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
           }
           env: [
             {
-              // Use internal FQDN for backend service
+              // Use internal FQDN for backend service (HTTPS required for internal Container Apps)
               name: 'BACKEND_URL'
-              value: 'http://${backendAppName}.internal.${containerEnv.properties.defaultDomain}'
+              value: 'https://${backendAppName}.internal.${containerEnv.properties.defaultDomain}'
             }
           ]
           probes: [
@@ -280,4 +280,4 @@ output containerRegistryLoginServer string = acr.properties.loginServer
 // Use null-forgiving operator (!) to suppress BCP318 warnings - the ternary ensures we only access when not null
 output frontendUrl string = deployContainerApps ? 'https://${frontendApp!.properties.configuration.ingress.fqdn}' : 'Not deployed'
 output backendUrl string = deployContainerApps ? 'http://${backendApp!.properties.configuration.ingress.fqdn}' : 'Not deployed'
-output backendInternalUrl string = deployContainerApps ? 'http://${backendAppName}.internal.${containerEnv.properties.defaultDomain}' : 'Not deployed'
+output backendInternalUrl string = deployContainerApps ? 'https://${backendAppName}.internal.${containerEnv.properties.defaultDomain}' : 'Not deployed'
