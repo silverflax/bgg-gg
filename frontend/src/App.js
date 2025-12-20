@@ -447,7 +447,7 @@ function App() {
     <div className="App">
       <header className="App-header">
         <div className="header-left">
-          <h1>My BGG Collection</h1>
+          <h1>Good Game Finder</h1>
         </div>
         
         <div className="header-right">
