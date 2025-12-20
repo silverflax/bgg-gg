@@ -191,6 +191,7 @@ jobs:
             environment=${{ github.event.inputs.environment || 'prod' }}
             imageTag=${{ needs.build.outputs.image_tag }}
             deployContainerApps=true
+            bggAccessToken=${{ secrets.BGG_ACCESS_TOKEN }}
           failOnStdErr: false
 
       - name: Output deployment info

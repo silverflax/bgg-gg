@@ -19,6 +19,10 @@ param imageTag string
 @description('Deploy container apps (set to false for initial infrastructure-only deployment)')
 param deployContainerApps bool = true
 
+@description('BGG API access token for authentication')
+@secure()
+param bggAccessToken string = ''
+
 // Naming conventions
 var acrName = replace('acr${appName}${resourceSuffix}', '-', '')
 var logAnalyticsName = 'log-${appName}-${environment}'
@@ -104,6 +108,10 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
           name: 'acr-password'
           value: acr.listCredentials().passwords[0].value
         }
+        {
+          name: 'bgg-access-token'
+          value: bggAccessToken
+        }
       ]
     }
     template: {
@@ -117,12 +125,20 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
           }
           env: [
             {
+              name: 'NODE_ENV'
+              value: 'production'
+            }
+            {
               name: 'PORT'
               value: '4000'
             }
             {
               name: 'CACHE_PATH'
               value: '/cache'
+            }
+            {
+              name: 'BGG_ACCESS_TOKEN'
+              secretRef: 'bgg-access-token'
             }
           ]
           probes: [

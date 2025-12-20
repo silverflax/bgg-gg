@@ -19,6 +19,10 @@ param imageTag string = 'latest'
 @description('Deploy container apps (set to false for initial infrastructure-only deployment)')
 param deployContainerApps bool = true
 
+@description('BGG API access token for authentication')
+@secure()
+param bggAccessToken string = ''
+
 // Generate unique suffix for globally unique names
 var resourceSuffix = uniqueString(subscription().subscriptionId, appName, environment)
 var resourceGroupName = 'rg-${appName}-${environment}'
@@ -44,6 +48,7 @@ module resources 'resources.bicep' = {
     resourceSuffix: resourceSuffix
     imageTag: imageTag
     deployContainerApps: deployContainerApps
+    bggAccessToken: bggAccessToken
   }
 }
 

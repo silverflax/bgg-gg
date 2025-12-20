@@ -1,3 +1,5 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require("express");
 const axios = require("axios");
 const xml2js = require("xml2js");
@@ -5,6 +7,47 @@ const CacheManager = require("./cacheManager");
 
 const app = express();
 const port = process.env.PORT || 4000;
+
+// BGG API Configuration
+const BGG_API_BASE_URL = "https://boardgamegeek.com/xmlapi2";
+const BGG_ACCESS_TOKEN = process.env.BGG_ACCESS_TOKEN;
+
+// Create axios instance with default BGG API configuration
+const bggApi = axios.create({
+  baseURL: BGG_API_BASE_URL,
+  headers: BGG_ACCESS_TOKEN ? { 'Authorization': `Bearer ${BGG_ACCESS_TOKEN}` } : {}
+});
+
+// Log all BGG API requests and responses
+const isProduction = process.env.NODE_ENV === 'production';
+
+bggApi.interceptors.request.use(request => {
+  const fullUrl = `${request.baseURL}${request.url}`;
+  console.log(`[BGG API] Request: ${request.method?.toUpperCase()} ${fullUrl}`);
+  
+  // Redact sensitive headers in production
+  const headersToLog = { ...request.headers };
+  if (isProduction && headersToLog.Authorization) {
+    headersToLog.Authorization = '[REDACTED]';
+  }
+  console.log(`[BGG API] Headers:`, JSON.stringify(headersToLog, null, 2));
+  return request;
+});
+
+bggApi.interceptors.response.use(
+  response => {
+    console.log(`[BGG API] Response: ${response.status} ${response.statusText}`);
+    return response;
+  },
+  error => {
+    console.error(`[BGG API] Error: ${error.response?.status} ${error.response?.statusText}`);
+    console.error(`[BGG API] Error details:`, error.message);
+    return Promise.reject(error);
+  }
+);
+
+// Rate limiting delay between BGG API requests (5 seconds as per BGG requirements)
+const BGG_RATE_LIMIT_MS = 5000;
 
 // Initialize improved cache manager
 const cache = new CacheManager();
@@ -18,7 +61,12 @@ app.get("/health", async (req, res) => {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       service: "bgg-collection-api",
-      version: "1.0.0",
+      version: "1.1.0",
+      bggApi: {
+        baseUrl: BGG_API_BASE_URL,
+        tokenConfigured: !!BGG_ACCESS_TOKEN,
+        rateLimitMs: BGG_RATE_LIMIT_MS
+      },
       cache: {
         files: cacheStats.fileCount,
         size: cacheStats.totalSize,
@@ -81,8 +129,7 @@ async function checkForNewGames(username) {
   console.log(`Checking for new games for ${username}...`);
   
   // Get fresh collection list
-  const collectionUrl = `https://boardgamegeek.com/xmlapi2/collection?username=${username}&own=1`;
-  const { data: collectionData } = await axios.get(collectionUrl);
+  const { data: collectionData } = await bggApi.get(`/collection?username=${username}&own=1`);
   const collectionParsed = await xml2js.parseStringPromise(collectionData, { explicitArray: false });
 
   if (!collectionParsed.items || !collectionParsed.items.item) {
@@ -173,20 +220,18 @@ async function checkForNewGames(username) {
 
 async function fetchFullCollection(username, res, forceRefresh = false) {
   // First, get the basic collection
-  const collectionUrl = `https://boardgamegeek.com/xmlapi2/collection?username=${username}&own=1`;
-  
   let collectionData;
   try {
     console.log(`Fetching collection from BGG for ${username}...`);
-    const response = await axios.get(collectionUrl);
+    const response = await bggApi.get(`/collection?username=${username}&own=1`);
     collectionData = response.data;
     console.log(`BGG API returned status: ${response.status}`);
     
     // BGG API returns 202 when still processing, need to retry
     if (response.status === 202) {
-      console.log(`BGG is still processing collection for ${username}, retrying in 3 seconds...`);
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      const retryResponse = await axios.get(collectionUrl);
+      console.log(`BGG is still processing collection for ${username}, retrying in ${BGG_RATE_LIMIT_MS / 1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, BGG_RATE_LIMIT_MS));
+      const retryResponse = await bggApi.get(`/collection?username=${username}&own=1`);
       collectionData = retryResponse.data;
       console.log(`BGG API retry returned status: ${retryResponse.status}`);
     }
@@ -271,8 +316,7 @@ async function fetchGameDetails(gameIds, collectionItems) {
     try {
       console.log(`Fetching batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(uniqueGameIds.length/batchSize)}...`);
       
-      const detailUrl = `https://boardgamegeek.com/xmlapi2/thing?id=${gameIdsStr}&stats=1`;
-      const { data: detailData } = await axios.get(detailUrl);
+      const { data: detailData } = await bggApi.get(`/thing?id=${gameIdsStr}&stats=1`);
       const detailParsed = await xml2js.parseStringPromise(detailData, { explicitArray: false });
 
       if (detailParsed.items && detailParsed.items.item) {
@@ -296,9 +340,9 @@ async function fetchGameDetails(gameIds, collectionItems) {
         }
       }
 
-      // Rate limiting - wait 1 second between requests
-      if (i + batchSize < gameIds.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Rate limiting - wait 5 seconds between requests as per BGG API requirements
+      if (i + batchSize < uniqueGameIds.length) {
+        await new Promise(resolve => setTimeout(resolve, BGG_RATE_LIMIT_MS));
       }
     } catch (batchError) {
       console.error(`Error fetching batch starting at ${i}:`, batchError.message);
