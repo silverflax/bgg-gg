@@ -5,7 +5,11 @@ const path = require("path");
 class CacheManager {
   constructor() {
     // Environment-configurable settings
-    this.cacheDir = process.env.CACHE_DIR || "/cache";
+    // Auto-detect cache directory based on environment:
+    // - If CACHE_DIR env var is set, use that
+    // - If running in container (Linux with /cache mount), use /cache
+    // - If running on Windows (local dev), use ./cache relative to this file
+    this.cacheDir = this._detectCacheDir();
     this.maxCacheSize = this._parseSize(process.env.MAX_CACHE_SIZE || "100MB");
     this.defaultTTL = this._parseTTL(process.env.CACHE_TTL || "30d");
     this.cleanupInterval = this._parseTTL(process.env.CLEANUP_INTERVAL || "1h");
@@ -13,6 +17,24 @@ class CacheManager {
     
     this._initializeCache();
     this._scheduleCleanup();
+  }
+
+  // Detect the appropriate cache directory based on environment
+  _detectCacheDir() {
+    // Explicit env var takes precedence
+    if (process.env.CACHE_DIR) {
+      return process.env.CACHE_DIR;
+    }
+    
+    // Check if running in a container (Linux with /cache directory available)
+    const isContainer = process.platform !== 'win32' && fsSync.existsSync('/cache');
+    
+    if (isContainer) {
+      return '/cache';
+    }
+    
+    // Local development on Windows - use ./cache relative to backend folder
+    return path.join(__dirname, 'cache');
   }
 
   // Parse size strings like "100MB", "1GB" to bytes

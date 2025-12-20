@@ -1183,10 +1183,15 @@ body.dark-theme .base-game-link:hover {
   padding: 20px;
   text-align: center;
   border-top: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
 }
 
 .powered-by-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   transition: transform 0.2s ease, opacity 0.2s ease;
   opacity: 0.85;
 }
@@ -1201,6 +1206,27 @@ body.dark-theme .base-game-link:hover {
   height: auto;
 }
 
+/* GitHub link */
+.github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  opacity: 0.7;
+  transition: transform 0.2s ease, opacity 0.2s ease, color 0.2s ease;
+}
+
+.github-link:hover {
+  transform: scale(1.1);
+  opacity: 1;
+  color: #000;
+}
+
+.github-logo {
+  width: 28px;
+  height: 28px;
+}
+
 /* Dark theme footer */
 body.dark-theme .app-footer {
   border-top-color: rgba(184, 117, 107, 0.3);
@@ -1211,5 +1237,19 @@ body.dark-theme .powered-by-link {
 }
 
 body.dark-theme .powered-by-link:hover {
+  opacity: 1;
+}
+
+body.dark-theme .powered-by-logo {
+  filter: invert(1);
+}
+
+body.dark-theme .github-link {
+  color: #f0e6ff;
+  opacity: 0.7;
+}
+
+body.dark-theme .github-link:hover {
+  color: #ffffff;
   opacity: 1;
 }

@@ -27,6 +27,8 @@ param bggAccessToken string = ''
 var acrName = replace('acr${appName}${resourceSuffix}', '-', '')
 var logAnalyticsName = 'log-${appName}-${environment}'
 var containerEnvName = 'cae-${appName}-${environment}'
+var storageAccountName = replace('st${appName}${resourceSuffix}', '-', '')
+var cacheShareName = 'backend-cache'
 // Simple app names for cleaner URLs (e.g., bgg-gg-backend.<id>.australiaeast.azurecontainerapps.io)
 var backendAppName = '${appName}-backend'
 var frontendAppName = '${appName}-frontend'
@@ -64,6 +66,42 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   }
 }
 
+// Storage Account for persistent cache
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
+  name: storageAccountName
+  location: location
+  sku: {
+    name: 'Standard_LRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    accessTier: 'Hot'
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+    allowBlobPublicAccess: false
+  }
+  tags: {
+    application: appName
+    environment: environment
+  }
+}
+
+// File Service for the storage account
+resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2023-01-01' = {
+  parent: storageAccount
+  name: 'default'
+}
+
+// File Share for backend cache
+resource cacheFileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-01-01' = {
+  parent: fileService
+  name: cacheShareName
+  properties: {
+    shareQuota: 1 // 1 GB quota - sufficient for 100MB cache with headroom
+    accessTier: 'TransactionOptimized'
+  }
+}
+
 // Container Apps Environment
 resource containerEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
   name: containerEnvName
@@ -81,6 +119,23 @@ resource containerEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
     application: appName
     environment: environment
   }
+}
+
+// Storage mount for Container Apps Environment
+resource cacheStorageMount 'Microsoft.App/managedEnvironments/storages@2023-05-01' = {
+  parent: containerEnv
+  name: 'cache-storage'
+  properties: {
+    azureFile: {
+      accountName: storageAccount.name
+      accountKey: storageAccount.listKeys().keys[0].value
+      shareName: cacheShareName
+      accessMode: 'ReadWrite'
+    }
+  }
+  dependsOn: [
+    cacheFileShare
+  ]
 }
 
 // Backend Container App (only deploy if deployContainerApps is true)
@@ -115,6 +170,13 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
       ]
     }
     template: {
+      volumes: [
+        {
+          name: 'cache-volume'
+          storageName: 'cache-storage'
+          storageType: 'AzureFile'
+        }
+      ]
       containers: [
         {
           name: 'backend'
@@ -133,12 +195,18 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
               value: '4000'
             }
             {
-              name: 'CACHE_PATH'
+              name: 'CACHE_DIR'
               value: '/cache'
             }
             {
               name: 'BGG_ACCESS_TOKEN'
               secretRef: 'bgg-access-token'
+            }
+          ]
+          volumeMounts: [
+            {
+              volumeName: 'cache-volume'
+              mountPath: '/cache'
             }
           ]
           probes: [
@@ -183,6 +251,9 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContain
     application: appName
     environment: environment
   }
+  dependsOn: [
+    cacheStorageMount
+  ]
 }
 
 // Frontend Container App (only deploy if deployContainerApps is true)
