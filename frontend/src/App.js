@@ -1,5 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
+import EventPanel from './components/EventPanel';
+import EventModal from './components/EventModal';
+import ScenarioWizard from './components/ScenarioWizard';
+
+// Scenario filter mappings
+const EXPERIENCE_WEIGHT_MAP = {
+  newbies: { min: 1.0, max: 2.0 },
+  mixed: { min: 1.5, max: 3.0 },
+  enthusiasts: { min: 2.5, max: 5.0 }
+};
+
+const MOOD_CATEGORIES = {
+  thinky: ['Strategy Game', 'Economic', 'Puzzle'],
+  social: ['Party Game', 'Bluffing', 'Negotiation'],
+  chaotic: ['Dice', 'Take That', 'Real-time'],
+  chill: ['Family Game', 'Abstract Strategy', 'Card Game']
+};
 
 function App() {
   const [games, setGames] = useState([]);
@@ -22,9 +39,21 @@ function App() {
     hideExpansions: false
   });
   
-  const [sortBy, setSortBy] = useState('name-asc'); // Default sort by name ascending
-  const [filtersCollapsed, setFiltersCollapsed] = useState(true); // Collapsed by default
-  const [darkTheme, setDarkTheme] = useState(false); // Dark theme state
+  const [sortBy, setSortBy] = useState('name-asc');
+  const [filtersCollapsed, setFiltersCollapsed] = useState(true);
+  const [darkTheme, setDarkTheme] = useState(false);
+
+  // Event states
+  const [events, setEvents] = useState([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [addToEventGameId, setAddToEventGameId] = useState(null);
+  
+  // Scenario states
+  const [filterMode, setFilterMode] = useState('manual'); // 'manual' or 'scenario'
+  const [showScenarioWizard, setShowScenarioWizard] = useState(false);
+  const [currentScenario, setCurrentScenario] = useState(null);
 
   // Cookie helper functions
   const getCookie = (name) => {
@@ -40,6 +69,24 @@ function App() {
     document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
   };
 
+  // Fetch events for user
+  const fetchEvents = useCallback(async (targetUsername) => {
+    if (!targetUsername) return;
+    
+    setEventsLoading(true);
+    try {
+      const response = await fetch(`/api/events/user/${targetUsername}`);
+      if (response.ok) {
+        const data = await response.json();
+        setEvents(data);
+      }
+    } catch (err) {
+      console.error('Error fetching events:', err);
+    } finally {
+      setEventsLoading(false);
+    }
+  }, []);
+
   // Initialize username and theme from cookies
   useEffect(() => {
     const savedUsername = getCookie('bgg-username');
@@ -47,11 +94,9 @@ function App() {
       setUsername(savedUsername);
       setTempUsername(savedUsername);
     } else {
-      // No username saved, start in edit mode
       setIsEditingUsername(true);
     }
 
-    // Initialize dark theme from cookie
     const savedTheme = getCookie('bgg-dark-theme');
     if (savedTheme === 'true') {
       setDarkTheme(true);
@@ -59,23 +104,14 @@ function App() {
     }
   }, []);
 
-  // Load games when username changes
-  useEffect(() => {
-    if (username) {
-      loadGamesForUser(username);
-    } else {
-      setGames([]);
-    }
-  }, [username]);
-
-  const loadGamesForUser = async (targetUsername) => {
+  // Load games for user function
+  const loadGamesForUser = useCallback(async (targetUsername) => {
     if (!targetUsername.trim()) return;
 
     setLoading(true);
     setError('');
     
     try {
-      // Initial load - will serve cached data immediately if available
       const response = await fetch(`/api/collection/${targetUsername}`);
       
       if (!response.ok) {
@@ -85,9 +121,23 @@ function App() {
       const data = await response.json();
       setGames(data.games || []);
       
-      // If we got cached data, check for new games in background
+      // Note: checkForNewGames is called inline to avoid circular dependency
       if (data.fromCache) {
-        setTimeout(() => checkForNewGames(targetUsername), 1000);
+        setTimeout(async () => {
+          if (!targetUsername) return;
+          setRefreshing(true);
+          try {
+            const refreshResponse = await fetch(`/api/collection/${targetUsername}/refresh`);
+            const refreshData = await refreshResponse.json();
+            if (refreshData.hasNewGames && refreshData.allGames) {
+              setGames(refreshData.allGames);
+            }
+          } catch (err) {
+            console.error('Error checking for new games:', err);
+          } finally {
+            setRefreshing(false);
+          }
+        }, 1000);
       }
     } catch (err) {
       setError(err.message);
@@ -95,9 +145,19 @@ function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Smart refresh after initial load
+  // Load games and events when username changes
+  useEffect(() => {
+    if (username) {
+      loadGamesForUser(username);
+      fetchEvents(username);
+    } else {
+      setGames([]);
+      setEvents([]);
+    }
+  }, [username, fetchEvents, loadGamesForUser]);
+
   const checkForNewGames = async (targetUsername = username) => {
     if (!targetUsername || refreshing) return;
     
@@ -107,24 +167,7 @@ function App() {
       const data = await response.json();
       
       if (data.hasNewGames && data.allGames) {
-        const newCount = data.newGamesCount || 0;
-        const removedCount = data.removedGamesCount || 0;
-        
-        let message = '';
-        if (newCount > 0 && removedCount > 0) {
-          message = `Found ${newCount} new games and removed ${removedCount} games`;
-        } else if (newCount > 0) {
-          message = `Found ${newCount} new games!`;
-        } else if (removedCount > 0) {
-          message = `Removed ${removedCount} games from collection`;
-        } else {
-          message = 'Collection updated';
-        }
-        
-        console.log(message);
         setGames(data.allGames);
-      } else {
-        console.log('No changes found in collection');
       }
     } catch (err) {
       console.error('Error checking for new games:', err);
@@ -167,7 +210,7 @@ function App() {
   const toggleDarkTheme = () => {
     const newTheme = !darkTheme;
     setDarkTheme(newTheme);
-    setCookie('bgg-dark-theme', newTheme.toString(), 365); // Save for 1 year
+    setCookie('bgg-dark-theme', newTheme.toString(), 365);
     
     if (newTheme) {
       document.body.classList.add('dark-theme');
@@ -176,8 +219,140 @@ function App() {
     }
   };
 
+  // Event management functions
+  const handleCreateEvent = async (name) => {
+    try {
+      const response = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          createdBy: username, 
+          name,
+          scenario: currentScenario 
+        })
+      });
+      
+      if (response.ok) {
+        const newEvent = await response.json();
+        setEvents(prev => [newEvent, ...prev]);
+        return newEvent;
+      }
+    } catch (err) {
+      console.error('Error creating event:', err);
+    }
+    return null;
+  };
+
+  const handleSelectEvent = async (event) => {
+    try {
+      const response = await fetch(`/api/events/${event.id}`);
+      if (response.ok) {
+        const fullEvent = await response.json();
+        setSelectedEvent(fullEvent);
+        setShowEventModal(true);
+      }
+    } catch (err) {
+      console.error('Error fetching event:', err);
+    }
+  };
+
+  const handleDeleteEvent = async (eventId) => {
+    if (!window.confirm('Delete this event?')) return;
+    
+    try {
+      const response = await fetch(`/api/events/${eventId}?username=${username}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        setEvents(prev => prev.filter(e => e.id !== eventId));
+        if (selectedEvent?.id === eventId) {
+          setShowEventModal(false);
+          setSelectedEvent(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error deleting event:', err);
+    }
+  };
+
+  const handleAddGameToEvent = async (eventId, game) => {
+    const stats = getGameStats(game);
+    const gameData = {
+      id: getGameId(game),
+      name: getGameName(game),
+      thumbnail: getGameImage(game),
+      weight: parseFloat(stats.weight) || 0,
+      playingTime: parseInt(safeGetValue(game.playingtime, '0')) || 0,
+      minPlayers: parseInt(stats.minPlayers) || 1,
+      maxPlayers: parseInt(stats.maxPlayers) || 10
+    };
+
+    try {
+      const response = await fetch(`/api/events/${eventId}/games`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ game: gameData, username })
+      });
+      
+      if (response.ok) {
+        const updatedEvent = await response.json();
+        setEvents(prev => prev.map(e => e.id === eventId ? updatedEvent : e));
+        if (selectedEvent?.id === eventId) {
+          setSelectedEvent(updatedEvent);
+        }
+      }
+    } catch (err) {
+      console.error('Error adding game to event:', err);
+    }
+    
+    setAddToEventGameId(null);
+  };
+
+  const handleRemoveGameFromEvent = async (eventId, gameId) => {
+    try {
+      const response = await fetch(`/api/events/${eventId}/games/${gameId}?username=${username}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        const updatedEvent = await response.json();
+        setEvents(prev => prev.map(e => e.id === eventId ? updatedEvent : e));
+        if (selectedEvent?.id === eventId) {
+          setSelectedEvent(updatedEvent);
+        }
+      }
+    } catch (err) {
+      console.error('Error removing game from event:', err);
+    }
+  };
+
+  // Scenario functions
+  const handleScenarioComplete = (scenario) => {
+    setCurrentScenario(scenario);
+    setShowScenarioWizard(false);
+    setFilterMode('scenario');
+    
+    // Apply scenario filters
+    const weightRange = EXPERIENCE_WEIGHT_MAP[scenario.experience] || {};
+    setFilters(prev => ({
+      ...prev,
+      minWeight: weightRange.min?.toString() || '',
+      maxWeight: weightRange.max?.toString() || '',
+      minPlayers: scenario.players?.toString() || '',
+      maxPlayers: scenario.players?.toString() || '',
+      hideExpansions: true
+    }));
+  };
+
+  const clearScenario = () => {
+    setCurrentScenario(null);
+    setFilterMode('manual');
+    clearFilters();
+  };
+
+  // Game helper functions
   const getGameStats = (game) => {
-    // Try to get stats from detailed data first, then fallback to collection data
     const stats = game.statistics?.ratings || game.stats || {};
     
     const getRating = () => {
@@ -214,7 +389,6 @@ function App() {
   };
 
   const getBestPlayerCount = (game) => {
-    // Try to find the best player count from poll results
     if (game.poll && Array.isArray(game.poll)) {
       const playerCountPoll = game.poll.find(p => p.$.name === 'suggested_numplayers');
       if (playerCountPoll && playerCountPoll.results) {
@@ -275,16 +449,14 @@ function App() {
     if (value === null || value === undefined) return fallback;
     if (typeof value === 'string') return value;
     if (typeof value === 'number') return String(value);
-    if (value.$.value !== undefined) return String(value.$.value);
+    if (value.$ && value.$.value !== undefined) return String(value.$.value);
     if (value._ !== undefined) return String(value._);
     return fallback;
   };
 
   const isExpansion = (game) => {
-    // Check if type is boardgameexpansion
     if (game.$.type === 'boardgameexpansion') return true;
     
-    // Check if it has "Expansion for Base-game" category
     if (game.link && Array.isArray(game.link)) {
       return game.link.some(link => 
         link.$.type === 'boardgamecategory' && 
@@ -300,7 +472,6 @@ function App() {
       return null;
     }
     
-    // Find the base game link (marked with inbound="true")
     const baseGameLink = game.link.find(link => 
       link.$.type === 'boardgameexpansion' && 
       link.$.inbound === 'true'
@@ -310,6 +481,27 @@ function App() {
       id: baseGameLink.$.id,
       name: baseGameLink.$.value
     } : null;
+  };
+
+  const getGameCategories = (game) => {
+    if (!game.link || !Array.isArray(game.link)) return [];
+    return game.link
+      .filter(link => link.$.type === 'boardgamecategory' || link.$.type === 'boardgamemechanic')
+      .map(link => link.$.value);
+  };
+
+  const matchesMood = (game, mood) => {
+    if (!mood) return true;
+    const categories = getGameCategories(game);
+    const moodCategories = MOOD_CATEGORIES[mood] || [];
+    return categories.some(cat => 
+      moodCategories.some(moodCat => cat.toLowerCase().includes(moodCat.toLowerCase()))
+    );
+  };
+
+  const isCooperative = (game) => {
+    const categories = getGameCategories(game);
+    return categories.some(cat => cat.toLowerCase().includes('cooperative'));
   };
 
   const openGameDetails = (game) => {
@@ -324,11 +516,11 @@ function App() {
     window.open(`https://boardgamegeek.com/boardgame/${gameId}`, '_blank');
   };
 
-  // Filter games based on current filter settings
+  // Filter games based on current filter settings and scenario
   const filteredGames = games.filter(game => {
     const stats = getGameStats(game);
     
-    // Name filter (case-insensitive partial match)
+    // Name filter
     if (filters.nameFilter) {
       const gameName = getGameName(game).toLowerCase();
       const filterText = filters.nameFilter.toLowerCase();
@@ -342,7 +534,7 @@ function App() {
     if (filters.minWeight && parseFloat(stats.weight) < parseFloat(filters.minWeight)) return false;
     if (filters.maxWeight && parseFloat(stats.weight) > parseFloat(filters.maxWeight)) return false;
     
-    // Player count filter (check if the game supports the specified range)
+    // Player count filter
     if (filters.minPlayers) {
       const gameMaxPlayers = parseInt(stats.maxPlayers);
       if (isNaN(gameMaxPlayers) || gameMaxPlayers < parseInt(filters.minPlayers)) return false;
@@ -357,6 +549,26 @@ function App() {
       const bestCount = String(stats.bestPlayerCount);
       const filterValue = String(filters.bestPlayerCount);
       if (bestCount === 'N/A' || bestCount !== filterValue) return false;
+    }
+
+    // Scenario-based filters
+    if (currentScenario) {
+      // Duration filter
+      if (currentScenario.duration) {
+        const playingTime = parseInt(safeGetValue(game.playingtime, '0')) || 0;
+        if (playingTime > currentScenario.duration * 1.5) return false;
+      }
+      
+      // Mood filter
+      if (currentScenario.mood && !matchesMood(game, currentScenario.mood)) {
+        return false;
+      }
+      
+      // Cooperative filter
+      if (currentScenario.cooperative !== null) {
+        const gameIsCoop = isCooperative(game);
+        if (currentScenario.cooperative !== gameIsCoop) return false;
+      }
     }
     
     return true;
@@ -379,9 +591,12 @@ function App() {
       bestPlayerCount: '',
       hideExpansions: false
     });
+    // Also clear scenario when clearing filters
+    setCurrentScenario(null);
+    setFilterMode('manual');
   };
 
-  // Sort games based on current sort setting
+  // Sort games
   const sortGames = (games) => {
     const [field, direction] = sortBy.split('-');
     
@@ -419,27 +634,9 @@ function App() {
     });
   };
 
-  // Apply sorting to filtered games
   const sortedAndFilteredGames = sortGames(filteredGames);
 
-  // Get unique best player counts for dropdown
-  const getBestPlayerCounts = () => {
-    const counts = games.map(game => getGameStats(game).bestPlayerCount)
-      .filter(count => count !== 'N/A')
-      .sort((a, b) => {
-        // Handle special cases like "2+" 
-        const aNum = parseInt(a);
-        const bNum = parseInt(b);
-        if (isNaN(aNum) && isNaN(bNum)) return a.localeCompare(b);
-        if (isNaN(aNum)) return 1;
-        if (isNaN(bNum)) return -1;
-        return aNum - bNum;
-      });
-    return [...new Set(counts)];
-  };
-
   if (error && !username) {
-    // Only show full error screen if there's no username to edit
     return <div className="error">Error: {error}</div>;
   }
 
@@ -497,6 +694,18 @@ function App() {
         </div>
       </header>
 
+      {/* Event Panel */}
+      {username && (
+        <EventPanel
+          events={events}
+          username={username}
+          onCreateEvent={handleCreateEvent}
+          onSelectEvent={handleSelectEvent}
+          onDeleteEvent={handleDeleteEvent}
+          loading={eventsLoading}
+        />
+      )}
+
       {loading && (
         <div className="loading-content">
           <div className="loading-spinner"></div>
@@ -530,7 +739,12 @@ function App() {
       {!loading && !error && games.length > 0 && (
         <div className="filters-container">
           <div className="filters-header" onClick={() => setFiltersCollapsed(!filtersCollapsed)}>
-            <h3>Filters</h3>
+            <h3>
+              {filterMode === 'scenario' && currentScenario ? 'Scenario Filters' : 'Filters'}
+              {currentScenario && (
+                <span className="scenario-active-badge">Scenario Active</span>
+              )}
+            </h3>
             <span className={`filters-toggle ${filtersCollapsed ? 'collapsed' : 'expanded'}`}>
               {filtersCollapsed ? '▼' : '▲'}
             </span>
@@ -538,116 +752,155 @@ function App() {
           
           {!filtersCollapsed && (
             <div className="filters-content">
-              {/* Name filter on its own row */}
+              {/* Filter mode toggle */}
+              <div className="filter-mode-toggle">
+                <button 
+                  className={`mode-btn ${filterMode === 'manual' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFilterMode('manual');
+                    setCurrentScenario(null);
+                  }}
+                >
+                  Manual Filters
+                </button>
+                <button 
+                  className={`mode-btn ${filterMode === 'scenario' ? 'active' : ''}`}
+                  onClick={() => setShowScenarioWizard(true)}
+                >
+                  Scenario Wizard
+                </button>
+              </div>
+
+              {/* Scenario summary */}
+              {currentScenario && (
+                <div className="scenario-summary">
+                  <div className="scenario-tags">
+                    <span className="scenario-tag">{currentScenario.players} players</span>
+                    <span className="scenario-tag">{currentScenario.experience}</span>
+                    <span className="scenario-tag">{currentScenario.duration} min</span>
+                    {currentScenario.mood && <span className="scenario-tag">{currentScenario.mood}</span>}
+                    {currentScenario.cooperative !== null && (
+                      <span className="scenario-tag">
+                        {currentScenario.cooperative ? 'Coop' : 'Competitive'}
+                      </span>
+                    )}
+                  </div>
+                  <button className="clear-scenario-btn" onClick={clearScenario}>
+                    Clear Scenario
+                  </button>
+                </div>
+              )}
+
+              {/* Name filter */}
               <div className="name-filter-row">
-            <div className="filter-group">
-              <label>Search by Name</label>
-              <input
-                type="text"
-                placeholder="Filter games by name..."
-                value={filters.nameFilter}
-                onChange={(e) => handleFilterChange('nameFilter', e.target.value)}
-                className="name-filter-input"
-              />
-            </div>
-          </div>
+                <div className="filter-group">
+                  <label>Search by Name</label>
+                  <input
+                    type="text"
+                    placeholder="Filter games by name..."
+                    value={filters.nameFilter}
+                    onChange={(e) => handleFilterChange('nameFilter', e.target.value)}
+                    className="name-filter-input"
+                  />
+                </div>
+              </div>
           
-          {/* Other filters in grid */}
-          <div className="filters-grid">
-            <div className="filter-group">
-              <label>Weight Range</label>
-              <div className="range-inputs">
-                <input
-                  type="number"
-                  placeholder="Min"
-                  step="0.1"
-                  min="1"
-                  max="5"
-                  value={filters.minWeight}
-                  onChange={(e) => handleFilterChange('minWeight', e.target.value)}
-                />
-                <span>to</span>
-                <input
-                  type="number"
-                  placeholder="Max"
-                  step="0.1"
-                  min="1"
-                  max="5"
-                  value={filters.maxWeight}
-                  onChange={(e) => handleFilterChange('maxWeight', e.target.value)}
-                />
+              {/* Other filters */}
+              <div className="filters-grid">
+                <div className="filter-group">
+                  <label>Weight Range</label>
+                  <div className="range-inputs">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      step="0.1"
+                      min="1"
+                      max="5"
+                      value={filters.minWeight}
+                      onChange={(e) => handleFilterChange('minWeight', e.target.value)}
+                    />
+                    <span>to</span>
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      step="0.1"
+                      min="1"
+                      max="5"
+                      value={filters.maxWeight}
+                      onChange={(e) => handleFilterChange('maxWeight', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="filter-group">
+                  <label>Player Count Range</label>
+                  <div className="range-inputs">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      min="1"
+                      max="10"
+                      value={filters.minPlayers}
+                      onChange={(e) => handleFilterChange('minPlayers', e.target.value)}
+                    />
+                    <span>to</span>
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      min="1"
+                      max="10"
+                      value={filters.maxPlayers}
+                      onChange={(e) => handleFilterChange('maxPlayers', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="filter-group">
+                  <label>Best Player Count</label>
+                  <div className="range-inputs">
+                    <input
+                      type="number"
+                      placeholder="Best at"
+                      min="1"
+                      max="10"
+                      value={filters.bestPlayerCount}
+                      onChange={(e) => handleFilterChange('bestPlayerCount', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="filter-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={filters.hideExpansions}
+                      onChange={(e) => handleFilterChange('hideExpansions', e.target.checked)}
+                    />
+                    Hide Expansions
+                  </label>
+                </div>
+
+                <div className="filter-group">
+                  <label>Sort By</label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                  >
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                    <option value="rating-desc">Rating (High to Low)</option>
+                    <option value="rating-asc">Rating (Low to High)</option>
+                    <option value="weight-desc">Weight (Heavy to Light)</option>
+                    <option value="weight-asc">Weight (Light to Heavy)</option>
+                  </select>
+                </div>
+
+                <div className="filter-actions">
+                  <button onClick={clearFilters} className="clear-filters-btn">
+                    Clear Filters
+                  </button>
+                </div>
               </div>
-            </div>
-
-            <div className="filter-group">
-              <label>Player Count Range</label>
-              <div className="range-inputs">
-                <input
-                  type="number"
-                  placeholder="Min"
-                  min="1"
-                  max="10"
-                  value={filters.minPlayers}
-                  onChange={(e) => handleFilterChange('minPlayers', e.target.value)}
-                />
-                <span>to</span>
-                <input
-                  type="number"
-                  placeholder="Max"
-                  min="1"
-                  max="10"
-                  value={filters.maxPlayers}
-                  onChange={(e) => handleFilterChange('maxPlayers', e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="filter-group">
-              <label>Best Player Count</label>
-              <div className="range-inputs">
-                <input
-                  type="number"
-                  placeholder="Best at"
-                  min="1"
-                  max="10"
-                  value={filters.bestPlayerCount}
-                  onChange={(e) => handleFilterChange('bestPlayerCount', e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="filter-group">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={filters.hideExpansions}
-                  onChange={(e) => handleFilterChange('hideExpansions', e.target.checked)}
-                />
-                Hide Expansions
-              </label>
-            </div>
-
-            <div className="filter-group">
-              <label>Sort By</label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                <option value="name-asc">Name (A-Z)</option>
-                <option value="name-desc">Name (Z-A)</option>
-                <option value="rating-desc">Rating (High to Low)</option>
-                <option value="rating-asc">Rating (Low to High)</option>
-                <option value="weight-desc">Weight (Heavy to Light)</option>
-                <option value="weight-asc">Weight (Light to Heavy)</option>
-              </select>
-            </div>
-
-            <div className="filter-actions">
-              <button onClick={clearFilters} className="clear-filters-btn">
-                Clear Filters
-              </button>
-            </div>
-          </div>
             </div>
           )}
         </div>
@@ -673,59 +926,94 @@ function App() {
                     <span>📦 Expansion</span>
                   </div>
                 )}
-              <div className="game-thumbnail">
-                {getGameImage(game) && (
-                  <img 
-                    src={getGameImage(game)} 
-                    alt={getGameName(game)}
-                    onError={(e) => {e.target.style.display = 'none'}}
-                  />
-                )}
-              </div>
-              
-              <div className="game-info">
-                <h3 
-                  className="game-title"
-                  onClick={() => openGameDetails(game)}
-                >
-                  {getGameName(game)}
-                </h3>
                 
-                <div className="game-stats">
-                  <div className="stat">
-                    <span className="label">Rating:</span>
-                    <span className="value">{stats.rating}</span>
+                {/* Add to Event button */}
+                {events.length > 0 && (
+                  <div className="add-to-event-container">
+                    <button 
+                      className="add-to-event-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAddToEventGameId(addToEventGameId === gameId ? null : gameId);
+                      }}
+                      title="Add to event"
+                    >
+                      +
+                    </button>
+                    
+                    {addToEventGameId === gameId && (
+                      <div className="add-to-event-dropdown">
+                        {events.map(event => (
+                          <button
+                            key={event.id}
+                            className="event-option"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddGameToEvent(event.id, game);
+                            }}
+                          >
+                            {event.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  
-                  <div className="stat">
-                    <span className="label">Weight:</span>
-                    <span className="value">{stats.weight}</span>
-                  </div>
-                  
-                  <div className="stat">
-                    <span className="label">Players:</span>
-                    <span className="value">{stats.minPlayers}-{stats.maxPlayers}</span>
-                  </div>
-                  
-                  <div className="stat">
-                    <span className="label">Best:</span>
-                    <span className="value">{stats.bestPlayerCount}</span>
-                  </div>
+                )}
+                
+                <div className="game-thumbnail">
+                  {getGameImage(game) && (
+                    <img 
+                      src={getGameImage(game)} 
+                      alt={getGameName(game)}
+                      onError={(e) => {e.target.style.display = 'none'}}
+                    />
+                  )}
                 </div>
                 
-                <button 
-                  className="bgg-link"
-                  onClick={() => openBGGPage(gameId)}
-                >
-                  View on BGG
-                </button>
+                <div className="game-info">
+                  <h3 
+                    className="game-title"
+                    onClick={() => openGameDetails(game)}
+                  >
+                    {getGameName(game)}
+                  </h3>
+                  
+                  <div className="game-stats">
+                    <div className="stat">
+                      <span className="label">Rating:</span>
+                      <span className="value">{stats.rating}</span>
+                    </div>
+                    
+                    <div className="stat">
+                      <span className="label">Weight:</span>
+                      <span className="value">{stats.weight}</span>
+                    </div>
+                    
+                    <div className="stat">
+                      <span className="label">Players:</span>
+                      <span className="value">{stats.minPlayers}-{stats.maxPlayers}</span>
+                    </div>
+                    
+                    <div className="stat">
+                      <span className="label">Best:</span>
+                      <span className="value">{stats.bestPlayerCount}</span>
+                    </div>
+                  </div>
+                  
+                  <button 
+                    className="bgg-link"
+                    onClick={() => openBGGPage(gameId)}
+                  >
+                    View on BGG
+                  </button>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
         </div>
       )}
 
+      {/* Game Details Modal */}
       {selectedGame && (
         <div className="game-modal" onClick={closeGameDetails}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -799,6 +1087,32 @@ function App() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Event Modal */}
+      {showEventModal && selectedEvent && (
+        <EventModal
+          event={selectedEvent}
+          onClose={() => {
+            setShowEventModal(false);
+            setSelectedEvent(null);
+          }}
+          onRemoveGame={handleRemoveGameFromEvent}
+          isCreator={selectedEvent.createdBy === username}
+        />
+      )}
+
+      {/* Scenario Wizard Modal */}
+      {showScenarioWizard && (
+        <div className="scenario-modal-overlay" onClick={() => setShowScenarioWizard(false)}>
+          <div className="scenario-modal-content" onClick={(e) => e.stopPropagation()}>
+            <ScenarioWizard
+              onComplete={handleScenarioComplete}
+              onCancel={() => setShowScenarioWizard(false)}
+              initialScenario={currentScenario}
+            />
           </div>
         </div>
       )}

@@ -4,8 +4,10 @@ const express = require("express");
 const axios = require("axios");
 const xml2js = require("xml2js");
 const CacheManager = require("./cacheManager");
+const EventManager = require("./eventManager");
 
 const app = express();
+app.use(express.json()); // Enable JSON body parsing
 const port = process.env.PORT || 4000;
 
 // BGG API Configuration
@@ -51,6 +53,9 @@ const BGG_RATE_LIMIT_MS = 5000;
 
 // Initialize improved cache manager
 const cache = new CacheManager();
+
+// Initialize event manager
+const events = new EventManager();
 
 // Health check endpoint for Azure monitoring
 app.get("/health", async (req, res) => {
@@ -358,6 +363,188 @@ async function fetchGameDetails(gameIds, collectionItems) {
 
   return detailedGames;
 }
+
+// ============================================
+// Event API Routes
+// ============================================
+
+// Create a new event
+app.post("/api/events", async (req, res) => {
+  try {
+    const { createdBy, name, scenario } = req.body;
+    
+    if (!createdBy) {
+      return res.status(400).json({ error: "createdBy (BGG username) is required" });
+    }
+    
+    const event = await events.create({ createdBy, name, scenario });
+    res.status(201).json(event);
+  } catch (error) {
+    console.error("Error creating event:", error.message);
+    res.status(500).json({ error: "Failed to create event" });
+  }
+});
+
+// Get an event by ID
+app.get("/api/events/:id", async (req, res) => {
+  try {
+    const event = await events.get(req.params.id);
+    
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    
+    // Calculate scores and include them in the response
+    const scores = events.calculateScores(event);
+    const voterCount = Object.keys(event.votes).length;
+    
+    res.json({ ...event, scores, voterCount });
+  } catch (error) {
+    console.error("Error getting event:", error.message);
+    res.status(500).json({ error: "Failed to get event" });
+  }
+});
+
+// Delete an event
+app.delete("/api/events/:id", async (req, res) => {
+  try {
+    const { username } = req.query;
+    const event = await events.get(req.params.id);
+    
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    
+    // Only the creator can delete the event
+    if (event.createdBy !== username) {
+      return res.status(403).json({ error: "Only the event creator can delete this event" });
+    }
+    
+    await events.delete(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting event:", error.message);
+    res.status(500).json({ error: "Failed to delete event" });
+  }
+});
+
+// List events by user
+app.get("/api/events/user/:username", async (req, res) => {
+  try {
+    const userEvents = await events.listByUser(req.params.username);
+    res.json(userEvents);
+  } catch (error) {
+    console.error("Error listing events:", error.message);
+    res.status(500).json({ error: "Failed to list events" });
+  }
+});
+
+// Add a game to an event
+app.post("/api/events/:id/games", async (req, res) => {
+  try {
+    const { game, username } = req.body;
+    const event = await events.get(req.params.id);
+    
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    
+    // Only the creator can add games
+    if (event.createdBy !== username) {
+      return res.status(403).json({ error: "Only the event creator can add games" });
+    }
+    
+    if (!game || !game.id || !game.name) {
+      return res.status(400).json({ error: "Game data with id and name is required" });
+    }
+    
+    const updatedEvent = await events.addGame(req.params.id, game);
+    const scores = events.calculateScores(updatedEvent);
+    
+    res.json({ ...updatedEvent, scores });
+  } catch (error) {
+    console.error("Error adding game to event:", error.message);
+    res.status(500).json({ error: "Failed to add game to event" });
+  }
+});
+
+// Remove a game from an event
+app.delete("/api/events/:id/games/:gameId", async (req, res) => {
+  try {
+    const { username } = req.query;
+    const event = await events.get(req.params.id);
+    
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    
+    // Only the creator can remove games
+    if (event.createdBy !== username) {
+      return res.status(403).json({ error: "Only the event creator can remove games" });
+    }
+    
+    const updatedEvent = await events.removeGame(req.params.id, req.params.gameId);
+    const scores = events.calculateScores(updatedEvent);
+    
+    res.json({ ...updatedEvent, scores });
+  } catch (error) {
+    console.error("Error removing game from event:", error.message);
+    res.status(500).json({ error: "Failed to remove game from event" });
+  }
+});
+
+// Submit a vote for an event
+app.post("/api/events/:id/vote", async (req, res) => {
+  try {
+    const { fingerprint, rankedGameIds } = req.body;
+    
+    if (!fingerprint) {
+      return res.status(400).json({ error: "Fingerprint is required for voting" });
+    }
+    
+    if (!Array.isArray(rankedGameIds)) {
+      return res.status(400).json({ error: "rankedGameIds must be an array" });
+    }
+    
+    const event = await events.get(req.params.id);
+    
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    
+    const updatedEvent = await events.vote(req.params.id, fingerprint, rankedGameIds);
+    const scores = events.calculateScores(updatedEvent);
+    const voterCount = Object.keys(updatedEvent.votes).length;
+    
+    res.json({ success: true, scores, voterCount });
+  } catch (error) {
+    console.error("Error submitting vote:", error.message);
+    res.status(500).json({ error: "Failed to submit vote" });
+  }
+});
+
+// Update event name
+app.patch("/api/events/:id", async (req, res) => {
+  try {
+    const { name, username } = req.body;
+    const event = await events.get(req.params.id);
+    
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    
+    // Only the creator can update the event
+    if (event.createdBy !== username) {
+      return res.status(403).json({ error: "Only the event creator can update this event" });
+    }
+    
+    const updatedEvent = await events.update(req.params.id, { name });
+    res.json(updatedEvent);
+  } catch (error) {
+    console.error("Error updating event:", error.message);
+    res.status(500).json({ error: "Failed to update event" });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`);
