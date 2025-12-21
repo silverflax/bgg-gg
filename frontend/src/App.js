@@ -69,6 +69,38 @@ function App() {
     document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
   };
 
+  // Event token helpers - store creator tokens in localStorage
+  const getEventTokens = () => {
+    try {
+      const tokens = localStorage.getItem('eventTokens');
+      return tokens ? JSON.parse(tokens) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const saveEventToken = (eventId, token) => {
+    const tokens = getEventTokens();
+    tokens[eventId] = token;
+    localStorage.setItem('eventTokens', JSON.stringify(tokens));
+  };
+
+  const getEventToken = (eventId) => {
+    const tokens = getEventTokens();
+    return tokens[eventId] || null;
+  };
+
+  const removeEventToken = (eventId) => {
+    const tokens = getEventTokens();
+    delete tokens[eventId];
+    localStorage.setItem('eventTokens', JSON.stringify(tokens));
+  };
+
+  // Check if we own an event (have its token)
+  const isEventOwner = (eventId) => {
+    return !!getEventToken(eventId);
+  };
+
   // Fetch events for user
   const fetchEvents = useCallback(async (targetUsername) => {
     if (!targetUsername) return;
@@ -234,8 +266,14 @@ function App() {
       
       if (response.ok) {
         const newEvent = await response.json();
-        setEvents(prev => [newEvent, ...prev]);
-        return newEvent;
+        // Store the creator token in localStorage
+        if (newEvent.creatorToken) {
+          saveEventToken(newEvent.id, newEvent.creatorToken);
+        }
+        // Remove token from state (not needed in UI)
+        const { creatorToken, ...eventWithoutToken } = newEvent;
+        setEvents(prev => [eventWithoutToken, ...prev]);
+        return eventWithoutToken;
       }
     } catch (err) {
       console.error('Error creating event:', err);
@@ -257,19 +295,29 @@ function App() {
   };
 
   const handleDeleteEvent = async (eventId) => {
+    const token = getEventToken(eventId);
+    if (!token) {
+      alert('You do not have permission to delete this event');
+      return;
+    }
+    
     if (!window.confirm('Delete this event?')) return;
     
     try {
-      const response = await fetch(`/api/events/${eventId}?username=${username}`, {
-        method: 'DELETE'
+      const response = await fetch(`/api/events/${eventId}`, {
+        method: 'DELETE',
+        headers: { 'X-Creator-Token': token }
       });
       
       if (response.ok) {
+        removeEventToken(eventId);
         setEvents(prev => prev.filter(e => e.id !== eventId));
         if (selectedEvent?.id === eventId) {
           setShowEventModal(false);
           setSelectedEvent(null);
         }
+      } else if (response.status === 403) {
+        alert('You do not have permission to delete this event');
       }
     } catch (err) {
       console.error('Error deleting event:', err);
@@ -277,6 +325,13 @@ function App() {
   };
 
   const handleAddGameToEvent = async (eventId, game) => {
+    const token = getEventToken(eventId);
+    if (!token) {
+      alert('You do not have permission to add games to this event');
+      setAddToEventGameId(null);
+      return;
+    }
+    
     const stats = getGameStats(game);
     const gameData = {
       id: getGameId(game),
@@ -291,8 +346,11 @@ function App() {
     try {
       const response = await fetch(`/api/events/${eventId}/games`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ game: gameData, username })
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Creator-Token': token
+        },
+        body: JSON.stringify({ game: gameData })
       });
       
       if (response.ok) {
@@ -301,6 +359,8 @@ function App() {
         if (selectedEvent?.id === eventId) {
           setSelectedEvent(updatedEvent);
         }
+      } else if (response.status === 403) {
+        alert('You do not have permission to add games to this event');
       }
     } catch (err) {
       console.error('Error adding game to event:', err);
@@ -310,9 +370,16 @@ function App() {
   };
 
   const handleRemoveGameFromEvent = async (eventId, gameId) => {
+    const token = getEventToken(eventId);
+    if (!token) {
+      alert('You do not have permission to remove games from this event');
+      return;
+    }
+    
     try {
-      const response = await fetch(`/api/events/${eventId}/games/${gameId}?username=${username}`, {
-        method: 'DELETE'
+      const response = await fetch(`/api/events/${eventId}/games/${gameId}`, {
+        method: 'DELETE',
+        headers: { 'X-Creator-Token': token }
       });
       
       if (response.ok) {
@@ -321,6 +388,8 @@ function App() {
         if (selectedEvent?.id === eventId) {
           setSelectedEvent(updatedEvent);
         }
+      } else if (response.status === 403) {
+        alert('You do not have permission to remove games from this event');
       }
     } catch (err) {
       console.error('Error removing game from event:', err);
@@ -703,6 +772,7 @@ function App() {
           onSelectEvent={handleSelectEvent}
           onDeleteEvent={handleDeleteEvent}
           loading={eventsLoading}
+          isEventOwner={isEventOwner}
         />
       )}
 
@@ -739,15 +809,17 @@ function App() {
       {!loading && !error && games.length > 0 && (
         <div className="filters-container">
           <div className="filters-header" onClick={() => setFiltersCollapsed(!filtersCollapsed)}>
-            <h3>
-              {filterMode === 'scenario' && currentScenario ? 'Scenario Filters' : 'Filters'}
+            <div className="filters-title">
+              <h3>
+                {filterMode === 'scenario' && currentScenario ? 'Scenario Filters' : 'Filters'}
+              </h3>
               {currentScenario && (
                 <span className="scenario-active-badge">Scenario Active</span>
               )}
-            </h3>
-            <span className={`filters-toggle ${filtersCollapsed ? 'collapsed' : 'expanded'}`}>
-              {filtersCollapsed ? '▼' : '▲'}
-            </span>
+              <span className={`filters-toggle ${filtersCollapsed ? 'collapsed' : 'expanded'}`}>
+                {filtersCollapsed ? '▼' : '▲'}
+              </span>
+            </div>
           </div>
           
           {!filtersCollapsed && (
@@ -927,8 +999,8 @@ function App() {
                   </div>
                 )}
                 
-                {/* Add to Event button */}
-                {events.length > 0 && (
+                {/* Add to Event button - only show events user owns */}
+                {events.filter(e => isEventOwner(e.id)).length > 0 && (
                   <div className="add-to-event-container">
                     <button 
                       className="add-to-event-btn"
@@ -943,7 +1015,7 @@ function App() {
                     
                     {addToEventGameId === gameId && (
                       <div className="add-to-event-dropdown">
-                        {events.map(event => (
+                        {events.filter(e => isEventOwner(e.id)).map(event => (
                           <button
                             key={event.id}
                             className="event-option"
@@ -1100,7 +1172,7 @@ function App() {
             setSelectedEvent(null);
           }}
           onRemoveGame={handleRemoveGameFromEvent}
-          isCreator={selectedEvent.createdBy === username}
+          isCreator={isEventOwner(selectedEvent.id)}
         />
       )}
 

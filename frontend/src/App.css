@@ -262,6 +262,12 @@
   padding: 10px;
 }
 
+.filters-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .filters-container h3 {
   margin: 0;
   color: #333;
@@ -269,8 +275,9 @@
 }
 
 .filters-toggle {
-  font-size: 1.2rem;
+  font-size: 0.9rem;
   color: #666;
+  opacity: 0.8;
   transition: transform 0.2s ease;
 }
 

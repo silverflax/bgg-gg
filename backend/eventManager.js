@@ -65,6 +65,13 @@ class EventManager {
     return path.join(this.eventsDir, `${eventId}.json`);
   }
 
+  // Strip sensitive data (creatorToken) from event before returning
+  _sanitizeEvent(event) {
+    if (!event) return null;
+    const { creatorToken, ...safeEvent } = event;
+    return safeEvent;
+  }
+
   // Get statistics about events
   async getStats() {
     try {
@@ -79,10 +86,13 @@ class EventManager {
   // Create a new event
   async create(eventData) {
     const id = nanoid(8);
+    const creatorToken = nanoid(16); // Secret token for creator
+    
     const event = {
       id,
       createdBy: eventData.createdBy,
       createdAt: new Date().toISOString(),
+      creatorToken, // Stored in event, but only returned on create
       name: eventData.name || "Game Night",
       scenario: eventData.scenario || null,
       games: [],
@@ -96,7 +106,16 @@ class EventManager {
     return event;
   }
 
-  // Get an event by ID
+  // Verify creator token for an event
+  async verifyToken(eventId, token) {
+    const event = await this.get(eventId);
+    if (!event) {
+      return false;
+    }
+    return event.creatorToken === token;
+  }
+
+  // Get an event by ID (internal use - includes creatorToken)
   async get(eventId) {
     try {
       const filePath = this._getFilePath(eventId);
@@ -111,6 +130,12 @@ class EventManager {
       console.error(`Failed to get event ${eventId}:`, error.message);
       return null;
     }
+  }
+
+  // Get an event by ID (public use - strips creatorToken)
+  async getPublic(eventId) {
+    const event = await this.get(eventId);
+    return this._sanitizeEvent(event);
   }
 
   // Update an event
@@ -151,7 +176,7 @@ class EventManager {
     }
   }
 
-  // List all events created by a user
+  // List all events created by a user (strips creatorToken)
   async listByUser(username) {
     try {
       const files = await fs.readdir(this.eventsDir);
@@ -166,7 +191,8 @@ class EventManager {
           const event = JSON.parse(content);
           
           if (event.createdBy === username) {
-            events.push(event);
+            // Strip creatorToken before returning
+            events.push(this._sanitizeEvent(event));
           }
         } catch (error) {
           // Skip corrupted files

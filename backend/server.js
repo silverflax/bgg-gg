@@ -385,10 +385,10 @@ app.post("/api/events", async (req, res) => {
   }
 });
 
-// Get an event by ID
+// Get an event by ID (public - strips creatorToken)
 app.get("/api/events/:id", async (req, res) => {
   try {
-    const event = await events.get(req.params.id);
+    const event = await events.getPublic(req.params.id);
     
     if (!event) {
       return res.status(404).json({ error: "Event not found" });
@@ -405,19 +405,18 @@ app.get("/api/events/:id", async (req, res) => {
   }
 });
 
-// Delete an event
+// Delete an event (requires creatorToken)
 app.delete("/api/events/:id", async (req, res) => {
   try {
-    const { username } = req.query;
-    const event = await events.get(req.params.id);
+    const creatorToken = req.headers['x-creator-token'];
     
-    if (!event) {
-      return res.status(404).json({ error: "Event not found" });
+    if (!creatorToken) {
+      return res.status(401).json({ error: "Creator token required" });
     }
     
-    // Only the creator can delete the event
-    if (event.createdBy !== username) {
-      return res.status(403).json({ error: "Only the event creator can delete this event" });
+    const isValid = await events.verifyToken(req.params.id, creatorToken);
+    if (!isValid) {
+      return res.status(403).json({ error: "Invalid creator token" });
     }
     
     await events.delete(req.params.id);
@@ -439,19 +438,19 @@ app.get("/api/events/user/:username", async (req, res) => {
   }
 });
 
-// Add a game to an event
+// Add a game to an event (requires creatorToken)
 app.post("/api/events/:id/games", async (req, res) => {
   try {
-    const { game, username } = req.body;
-    const event = await events.get(req.params.id);
+    const creatorToken = req.headers['x-creator-token'];
+    const { game } = req.body;
     
-    if (!event) {
-      return res.status(404).json({ error: "Event not found" });
+    if (!creatorToken) {
+      return res.status(401).json({ error: "Creator token required" });
     }
     
-    // Only the creator can add games
-    if (event.createdBy !== username) {
-      return res.status(403).json({ error: "Only the event creator can add games" });
+    const isValid = await events.verifyToken(req.params.id, creatorToken);
+    if (!isValid) {
+      return res.status(403).json({ error: "Invalid creator token" });
     }
     
     if (!game || !game.id || !game.name) {
@@ -461,32 +460,35 @@ app.post("/api/events/:id/games", async (req, res) => {
     const updatedEvent = await events.addGame(req.params.id, game);
     const scores = events.calculateScores(updatedEvent);
     
-    res.json({ ...updatedEvent, scores });
+    // Strip creatorToken before returning
+    const { creatorToken: _, ...safeEvent } = updatedEvent;
+    res.json({ ...safeEvent, scores });
   } catch (error) {
     console.error("Error adding game to event:", error.message);
     res.status(500).json({ error: "Failed to add game to event" });
   }
 });
 
-// Remove a game from an event
+// Remove a game from an event (requires creatorToken)
 app.delete("/api/events/:id/games/:gameId", async (req, res) => {
   try {
-    const { username } = req.query;
-    const event = await events.get(req.params.id);
+    const creatorToken = req.headers['x-creator-token'];
     
-    if (!event) {
-      return res.status(404).json({ error: "Event not found" });
+    if (!creatorToken) {
+      return res.status(401).json({ error: "Creator token required" });
     }
     
-    // Only the creator can remove games
-    if (event.createdBy !== username) {
-      return res.status(403).json({ error: "Only the event creator can remove games" });
+    const isValid = await events.verifyToken(req.params.id, creatorToken);
+    if (!isValid) {
+      return res.status(403).json({ error: "Invalid creator token" });
     }
     
     const updatedEvent = await events.removeGame(req.params.id, req.params.gameId);
     const scores = events.calculateScores(updatedEvent);
     
-    res.json({ ...updatedEvent, scores });
+    // Strip creatorToken before returning
+    const { creatorToken: _, ...safeEvent } = updatedEvent;
+    res.json({ ...safeEvent, scores });
   } catch (error) {
     console.error("Error removing game from event:", error.message);
     res.status(500).json({ error: "Failed to remove game from event" });
@@ -523,23 +525,26 @@ app.post("/api/events/:id/vote", async (req, res) => {
   }
 });
 
-// Update event name
+// Update event name (requires creatorToken)
 app.patch("/api/events/:id", async (req, res) => {
   try {
-    const { name, username } = req.body;
-    const event = await events.get(req.params.id);
+    const creatorToken = req.headers['x-creator-token'];
+    const { name } = req.body;
     
-    if (!event) {
-      return res.status(404).json({ error: "Event not found" });
+    if (!creatorToken) {
+      return res.status(401).json({ error: "Creator token required" });
     }
     
-    // Only the creator can update the event
-    if (event.createdBy !== username) {
-      return res.status(403).json({ error: "Only the event creator can update this event" });
+    const isValid = await events.verifyToken(req.params.id, creatorToken);
+    if (!isValid) {
+      return res.status(403).json({ error: "Invalid creator token" });
     }
     
     const updatedEvent = await events.update(req.params.id, { name });
-    res.json(updatedEvent);
+    
+    // Strip creatorToken before returning
+    const { creatorToken: _, ...safeEvent } = updatedEvent;
+    res.json(safeEvent);
   } catch (error) {
     console.error("Error updating event:", error.message);
     res.status(500).json({ error: "Failed to update event" });

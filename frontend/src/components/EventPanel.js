@@ -6,7 +6,8 @@ function EventPanel({
   onCreateEvent, 
   onSelectEvent, 
   onDeleteEvent,
-  loading 
+  loading,
+  isEventOwner 
 }) {
   const [isCreating, setIsCreating] = useState(false);
   const [newEventName, setNewEventName] = useState('');
@@ -125,30 +126,35 @@ function EventPanel({
 
           {!loading && events.length > 0 && (
             <div className="event-list">
-              {events.map(event => (
-                <div 
-                  key={event.id} 
-                  className="event-item"
-                  onClick={() => onSelectEvent(event)}
-                >
-                  <div className="event-item-info">
-                    <span className="event-item-name">{event.name}</span>
-                    <span className="event-item-meta">
-                      {event.games?.length || 0} games · {formatDate(event.createdAt)}
-                    </span>
-                  </div>
-                  <button
-                    className="event-item-delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteEvent(event.id);
-                    }}
-                    title="Delete event"
+              {events.map(event => {
+                const canDelete = isEventOwner && isEventOwner(event.id);
+                return (
+                  <div 
+                    key={event.id} 
+                    className="event-item"
+                    onClick={() => onSelectEvent(event)}
                   >
-                    ×
-                  </button>
-                </div>
-              ))}
+                    <div className="event-item-info">
+                      <span className="event-item-name">{event.name}</span>
+                      <span className="event-item-meta">
+                        {event.games?.length || 0} games · {formatDate(event.createdAt)}
+                      </span>
+                    </div>
+                    {canDelete && (
+                      <button
+                        className="event-item-delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteEvent(event.id);
+                        }}
+                        title="Delete event"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
