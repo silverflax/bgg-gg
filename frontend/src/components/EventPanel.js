@@ -11,13 +11,15 @@ function EventPanel({
 }) {
   const [isCreating, setIsCreating] = useState(false);
   const [newEventName, setNewEventName] = useState('');
+  const [showResultsToVoters, setShowResultsToVoters] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(true); // Collapsed by default
 
   const handleCreate = async () => {
     if (!newEventName.trim()) return;
     
-    await onCreateEvent(newEventName.trim());
+    await onCreateEvent(newEventName.trim(), { showResultsToVoters });
     setNewEventName('');
+    setShowResultsToVoters(true);
     setIsCreating(false);
   };
 
@@ -94,6 +96,14 @@ function EventPanel({
                 autoFocus
                 className="event-name-input"
               />
+              <label className="event-create-option">
+                <input
+                  type="checkbox"
+                  checked={showResultsToVoters}
+                  onChange={(e) => setShowResultsToVoters(e.target.checked)}
+                />
+                Show rankings to voters after they vote
+              </label>
               <div className="event-create-actions">
                 <button 
                   className="event-btn primary"
@@ -107,6 +117,7 @@ function EventPanel({
                   onClick={() => {
                     setIsCreating(false);
                     setNewEventName('');
+                    setShowResultsToVoters(true);
                   }}
                 >
                   Cancel

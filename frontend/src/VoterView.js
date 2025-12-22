@@ -71,6 +71,8 @@ function VoterView() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [hasExistingVote, setHasExistingVote] = useState(false);
+  const [scores, setScores] = useState(null);
+  const [voterCount, setVoterCount] = useState(0);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -115,6 +117,8 @@ function VoterView() {
       
       const data = await response.json();
       setEvent(data);
+      setScores(data.scores || null);
+      setVoterCount(data.voterCount || 0);
       
       // Check if user has already voted
       if (fingerprint && data.votes && data.votes[fingerprint]) {
@@ -176,6 +180,9 @@ function VoterView() {
         throw new Error('Failed to submit vote');
       }
 
+      const result = await response.json();
+      setScores(result.scores || null);
+      setVoterCount(result.voterCount || 0);
       setSubmitted(true);
       setHasExistingVote(true);
     } catch (err) {
@@ -280,6 +287,26 @@ function VoterView() {
           {submitting ? 'Submitting...' : hasExistingVote ? 'Update Vote' : 'Submit Vote'}
         </button>
       </div>
+
+      {/* Show rankings if voter has voted and event allows it */}
+      {event.showResultsToVoters && (hasExistingVote || submitted) && scores && scores.length > 0 && (
+        <div className="voter-results">
+          <h2>Current Rankings</h2>
+          <p className="voter-results-meta">{voterCount} vote{voterCount !== 1 ? 's' : ''} so far</p>
+          <div className="voter-results-list">
+            {scores.map((item, index) => {
+              const game = games.find(g => g.id === item.gameId) || { name: item.name };
+              return (
+                <div key={item.gameId} className="voter-result-item">
+                  <span className="voter-result-rank">{index + 1}</span>
+                  <span className="voter-result-name">{game.name || item.name}</span>
+                  <span className="voter-result-score">{item.score} pts</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="voter-footer">
         <p>

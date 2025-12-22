@@ -1357,6 +1357,22 @@ body.dark-theme .github-link:hover {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.event-create-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 0.9rem;
+  color: #f0e6ff;
+  cursor: pointer;
+}
+
+.event-create-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.9);
   color: #333;
@@ -2294,6 +2310,62 @@ body.dark-theme .github-link:hover {
   cursor: not-allowed;
 }
 
+.voter-results {
+  margin-top: 30px;
+  padding: 20px;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 12px;
+  border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.voter-results h2 {
+  margin: 0 0 5px 0;
+  font-size: 1.3rem;
+  color: #333;
+}
+
+.voter-results-meta {
+  margin: 0 0 15px 0;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.voter-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voter-result-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.voter-result-rank {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #667eea;
+  min-width: 24px;
+  text-align: center;
+}
+
+.voter-result-name {
+  flex: 1;
+  font-weight: 500;
+  color: #333;
+}
+
+.voter-result-score {
+  font-weight: 600;
+  color: #28a745;
+  font-size: 0.9rem;
+}
+
 .voter-footer {
   text-align: center;
   color: #888;
@@ -2484,6 +2556,27 @@ body.dark-theme .voter-game-meta {
 
 body.dark-theme .voter-footer {
   color: #b8a5d4;
+}
+
+body.dark-theme .voter-results {
+  background: rgba(102, 126, 234, 0.15);
+  border-color: rgba(102, 126, 234, 0.3);
+}
+
+body.dark-theme .voter-results h2 {
+  color: #f0e6ff;
+}
+
+body.dark-theme .voter-results-meta {
+  color: #b8a5d4;
+}
+
+body.dark-theme .voter-result-item {
+  background: rgba(30, 41, 59, 0.8);
+}
+
+body.dark-theme .voter-result-name {
+  color: #f0e6ff;
 }
 
 /* Responsive adjustments */

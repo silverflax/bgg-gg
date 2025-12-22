@@ -253,7 +253,7 @@ function App() {
   };
 
   // Event management functions
-  const handleCreateEvent = async (name) => {
+  const handleCreateEvent = async (name, options = {}) => {
     try {
       const response = await fetch('/api/events', {
         method: 'POST',
@@ -261,7 +261,8 @@ function App() {
         body: JSON.stringify({ 
           createdBy: username, 
           name,
-          scenario: currentScenario 
+          scenario: currentScenario,
+          showResultsToVoters: options.showResultsToVoters ?? true
         })
       });
       

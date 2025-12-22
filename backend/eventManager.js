@@ -95,6 +95,7 @@ class EventManager {
       creatorToken, // Stored in event, but only returned on create
       name: eventData.name || "Game Night",
       scenario: eventData.scenario || null,
+      showResultsToVoters: eventData.showResultsToVoters ?? true,
       games: [],
       votes: {}
     };
