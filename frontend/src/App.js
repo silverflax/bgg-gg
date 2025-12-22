@@ -36,6 +36,7 @@ function App() {
     minPlayers: '',
     maxPlayers: '',
     bestPlayerCount: '',
+    maxTime: '',
     hideExpansions: false
   });
   
@@ -404,12 +405,15 @@ function App() {
     
     // Apply scenario filters
     const weightRange = EXPERIENCE_WEIGHT_MAP[scenario.experience] || {};
+    // Allow games up to 1.5x the selected duration
+    const maxPlayTime = scenario.duration ? Math.round(scenario.duration * 1.5) : '';
     setFilters(prev => ({
       ...prev,
       minWeight: weightRange.min?.toString() || '',
       maxWeight: weightRange.max?.toString() || '',
       minPlayers: scenario.players?.toString() || '',
       maxPlayers: scenario.players?.toString() || '',
+      maxTime: maxPlayTime.toString(),
       hideExpansions: true
     }));
   };
@@ -448,12 +452,18 @@ function App() {
       return max || 'N/A';
     };
     
+    const getPlayingTime = () => {
+      const time = safeGetValue(game.playingtime, '0');
+      return parseInt(time) || 0;
+    };
+
     return {
       rating: getRating(),
       weight: getWeight(),
       minPlayers: getMinPlayers(),
       maxPlayers: getMaxPlayers(),
-      bestPlayerCount: getBestPlayerCount(game)
+      bestPlayerCount: getBestPlayerCount(game),
+      playingTime: getPlayingTime()
     };
   };
 
@@ -620,14 +630,14 @@ function App() {
       if (bestCount === 'N/A' || bestCount !== filterValue) return false;
     }
 
-    // Scenario-based filters
+    // Time filter
+    if (filters.maxTime) {
+      const playingTime = stats.playingTime;
+      if (playingTime > parseInt(filters.maxTime)) return false;
+    }
+
+    // Scenario-based filters (duration is handled by maxTime filter above)
     if (currentScenario) {
-      // Duration filter
-      if (currentScenario.duration) {
-        const playingTime = parseInt(safeGetValue(game.playingtime, '0')) || 0;
-        if (playingTime > currentScenario.duration * 1.5) return false;
-      }
-      
       // Mood filter
       if (currentScenario.mood && !matchesMood(game, currentScenario.mood)) {
         return false;
@@ -658,6 +668,7 @@ function App() {
       minPlayers: '',
       maxPlayers: '',
       bestPlayerCount: '',
+      maxTime: '',
       hideExpansions: false
     });
     // Also clear scenario when clearing filters
@@ -942,6 +953,20 @@ function App() {
                 </div>
 
                 <div className="filter-group">
+                  <label>Max Play Time (minutes)</label>
+                  <div className="range-inputs">
+                    <input
+                      type="number"
+                      placeholder="Max time"
+                      min="5"
+                      step="5"
+                      value={filters.maxTime}
+                      onChange={(e) => handleFilterChange('maxTime', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="filter-group">
                   <label>
                     <input
                       type="checkbox"
@@ -1063,12 +1088,17 @@ function App() {
                     
                     <div className="stat">
                       <span className="label">Players:</span>
-                      <span className="value">{stats.minPlayers}-{stats.maxPlayers}</span>
+                      <span className="value">
+                        {stats.minPlayers}-{stats.maxPlayers}
+                        {stats.bestPlayerCount !== 'N/A' && (
+                          <span className="best-count"> (Best {stats.bestPlayerCount})</span>
+                        )}
+                      </span>
                     </div>
                     
                     <div className="stat">
-                      <span className="label">Best:</span>
-                      <span className="value">{stats.bestPlayerCount}</span>
+                      <span className="label">Time:</span>
+                      <span className="value">{stats.playingTime} min</span>
                     </div>
                   </div>
                   

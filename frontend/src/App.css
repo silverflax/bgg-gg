@@ -574,6 +574,12 @@
   font-weight: 500;
 }
 
+.stat .value .best-count {
+  font-size: 0.85em;
+  opacity: 0.75;
+  font-weight: 400;
+}
+
 .bgg-link {
   background-color: #ff6900;
   color: white;
