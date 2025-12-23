@@ -2235,6 +2235,8 @@ body.dark-theme .github-link:hover {
   cursor: grab;
   transition: all 0.2s ease;
   user-select: none;
+  touch-action: none; /* Prevent default touch behaviors for drag-and-drop */
+  -webkit-touch-callout: none; /* Prevent iOS callout menu */
 }
 
 .voter-game-item:hover {
