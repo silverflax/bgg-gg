@@ -2232,11 +2232,8 @@ body.dark-theme .github-link:hover {
   background: white;
   border-radius: 10px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  cursor: grab;
   transition: all 0.2s ease;
   user-select: none;
-  touch-action: none; /* Prevent default touch behaviors for drag-and-drop */
-  -webkit-touch-callout: none; /* Prevent iOS callout menu */
 }
 
 .voter-game-item:hover {
@@ -2258,7 +2255,10 @@ body.dark-theme .github-link:hover {
 .voter-game-drag-handle {
   color: #ccc;
   font-size: 1.2rem;
-  padding: 0 5px;
+  padding: 10px 8px;
+  cursor: grab;
+  touch-action: none; /* Only the handle prevents default touch behaviors */
+  -webkit-touch-callout: none;
 }
 
 .voter-game-thumb {

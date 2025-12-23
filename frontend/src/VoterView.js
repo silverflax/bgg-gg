@@ -40,11 +40,16 @@ function SortableGameItem({ game, index }) {
       ref={setNodeRef} 
       style={style} 
       className={`voter-game-item ${isDragging ? 'dragging' : ''}`}
-      {...attributes} 
-      {...listeners}
+      {...attributes}
     >
       <span className="voter-game-rank">{index + 1}</span>
-      <div className="voter-game-drag-handle">⋮⋮</div>
+      {/* Only the drag handle responds to touch/pointer events */}
+      <div 
+        className="voter-game-drag-handle"
+        {...listeners}
+      >
+        ⋮⋮
+      </div>
       {game.thumbnail && (
         <img 
           src={game.thumbnail} 
@@ -78,13 +83,13 @@ function VoterView() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // 8px movement required before drag starts
+        distance: 5, // Small movement required before drag starts
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 150, // 150ms hold before drag starts
-        tolerance: 5, // 5px movement tolerance during delay
+        delay: 0, // No delay since only handle is draggable
+        tolerance: 5,
       },
     }),
     useSensor(KeyboardSensor, {
